@@ -1,7 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const db = require('./database'); // Importa o banco de dados
+const db = require('./database');
+const bcrypt = require('bcrypt');
+
 
 dotenv.config();
 const app = express();
@@ -41,6 +43,64 @@ app.post('/api/posts', (req, res) => {
     } else {
       res.status(201).json({ id: this.lastID, title, description });
     }
+  });
+});
+
+app.post('/api/register', (req, res) => {
+  const { username, email, password } = req.body;
+  console.log(req.body);
+
+  if (!username || !email || !password) {
+    return res.status(400).json({ error: 'Todos os campos são obrigatórios.' });
+  }
+
+  // Verificar se o usuário já existe
+  db.get('SELECT * FROM users WHERE email = ?', [email], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: 'Erro ao verificar o usuário.' });
+    }
+    if (row) {
+      return res.status(400).json({ error: 'Email já registrado.' });
+    }
+
+    // Criptografar a senha
+    const hashedPassword = bcrypt.hashSync(password, 10);
+
+    const query = 'INSERT INTO users (username, email, password) VALUES (?, ?, ?)';
+    db.run(query, [username, email, hashedPassword], function (err) {
+      if (err) {
+        return res.status(500).json({ error: 'Erro ao criar o usuário.' });
+      }
+      res.status(201).json({ message: 'Usuário registrado com sucesso!' });
+    });
+  });
+});
+
+// Rota POST para login
+app.post('/api/login', (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email e senha são obrigatórios.' });
+  }
+
+  db.get('SELECT * FROM users WHERE email = ?', [email], (err, row) => {
+    if (err) {
+      return res.status(500).json({ error: 'Erro ao buscar o usuário.' });
+    }
+    if (!row) {
+      return res.status(400).json({ error: 'Usuário não encontrado.' });
+    }
+
+    // Verificar a senha
+    if (!bcrypt.compareSync(password, row.password)) {
+      return res.status(400).json({ error: 'Senha incorreta.' });
+    }
+
+    // Gerar um token JWT
+    const token = jwt.sign({ id: row.id, email: row.email }, 'seu_segredo', { expiresIn: '1h' });
+
+    res.json({ message: 'Login bem-sucedido!', token });
   });
 });
 
