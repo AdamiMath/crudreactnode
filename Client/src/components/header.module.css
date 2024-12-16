@@ -1,0 +1,29 @@
+*{
+    margin: 0;
+    padding: 0;
+}
+.containerNav{
+    background: aquamarine;
+    height: 80px;
+    align-content: center;
+}
+.nav{
+    display: flex;
+    justify-content: space-between;
+    max-width: 980px;
+    margin: 0 auto;
+}
+
+ul, li{
+    text-decoration: none;
+    list-style: none;
+}
+
+a{
+    color: #fff;
+    text-decoration: none;
+}
+
+a:hover{
+    color: black;
+}

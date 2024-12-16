@@ -1,28 +1,27 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { createBrowserRoute, RouterProvider, Route } from 'react-router-dom'
+import { createBrowserRouter, RouterProvider, Route } from 'react-router-dom'
 
 
 import App from './App.jsx'
 import NewPost from './components/NewPost.jsx'
+import { LimiteCaracteresProvider } from './LimiteCaracteresContext.jsx'
 
-const router = createBrowserRoute([
-  {
-    element: <App />,
-    children: [
+const router = createBrowserRouter([
       {
-        path: '/'
+        path: '/',
+        element: <App />
       },
       {
         path: '/newPost',
         element: <NewPost />
       }
-    ]
-  }
 ])
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <App /> 
+    <LimiteCaracteresProvider>
+      <RouterProvider router={router} />
+    </LimiteCaracteresProvider>
   </StrictMode>,
 )
