@@ -1,32 +1,93 @@
 const express = require('express');
-const cors = require('cors');
-const dotenv = require('dotenv');
-const db = require('./database');
+const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const cors = require('cors');
+const db = require('./database'); // Arquivo SQLite fornecido
 
-
-dotenv.config();
 const app = express();
-const PORT = process.env.PORT || 5000;
-
-// Middleware
+const SECRET_KEY = 'seu_segredo_super_secreto'; // Substitua por uma chave segura!
 app.use(cors());
-app.use(express.json());
+app.use(bodyParser.json());
 
-// Rota GET para listar os posts
-app.get('/api/posts', (req, res) => {
-  db.all('SELECT * FROM posts', [], (err, rows) => {
-    if (err) {
-      console.error('Erro ao buscar os posts:', err.message);
-      res.status(500).json({ error: 'Erro ao buscar os posts' });
-    } else {
-      res.json(rows);
-    }
-  });
+
+app.post('/api/auth/register', async (req, res) => {
+  const { username, email, password, role } = req.body;
+  
+  if (!username || !email || !password || !role) {
+    return res.status(400).json({ error: 'Todos os campos são obrigatórios.' });
+  }
+
+  // Verifique se a role é válida
+  if (!['master', 'admin', 'user'].includes(role)) {
+    return res.status(400).json({ error: 'Role inválida.' });
+  }
+
+  try {
+    const hashedPassword = await bcrypt.hash(password, 10);
+    db.run(
+      `INSERT INTO users (username, email, password, role) VALUES (?, ?, ?, ?)`,
+      [username, email, hashedPassword, role],
+      function (err) {
+        if (err) {
+          console.error(err.message);
+          return res.status(500).json({ error: 'Erro ao registrar o usuário.' });
+        }
+        res.status(201).json({ id: this.lastID, username, email, role });
+      }
+    );
+  } catch (error) {
+    console.error(error.message);
+    res.status(500).json({ error: 'Erro no servidor.' });
+  }
 });
 
-// Rota POST para criar um novo post
-app.post('/api/posts', (req, res) => {
+// Endpoint para login
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body;
+
+  db.get(
+    'SELECT * FROM users WHERE username = ?',
+    [username],
+    async (err, user) => {
+      if (err) {
+        return res.status(500).json({ error: 'Erro no servidor.' });
+      }
+      if (!user) {
+        return res.status(401).json({ error: 'Usuário ou senha inválidos.' });
+      }
+
+      const passwordMatch = await bcrypt.compare(password, user.password);
+
+      if (passwordMatch) {
+        const token = jwt.sign({ id: user.id }, SECRET_KEY, { expiresIn: '1h' });
+        return res.json({ token });
+      } else {
+        return res.status(401).json({ error: 'Usuário ou senha inválidos.' });
+      }
+    }
+  );
+});
+
+// Middleware para verificar JWT
+const authenticateJWT = (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1]; // Bearer <token>
+
+  if (!token) {
+    return res.status(401).json({ error: 'Acesso negado. Token não fornecido.' });
+  }
+
+  jwt.verify(token, SECRET_KEY, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Token inválido.' });
+    }
+    req.user = user;
+    next();
+  });
+};
+
+// Rota para criar um novo post
+app.post('/api/posts', authenticateJWT, (req, res) => {
   const { title, description } = req.body;
 
   if (!title || !description) {
@@ -46,65 +107,18 @@ app.post('/api/posts', (req, res) => {
   });
 });
 
-app.post('/api/register', (req, res) => {
-  const { username, email, password } = req.body;
-  console.log(req.body);
-
-  if (!username || !email || !password) {
-    return res.status(400).json({ error: 'Todos os campos são obrigatórios.' });
-  }
-
-  // Verificar se o usuário já existe
-  db.get('SELECT * FROM users WHERE email = ?', [email], (err, row) => {
+// Rota para obter posts (protegida)
+app.get('/api/posts', authenticateJWT, (req, res) => {
+  db.all('SELECT * FROM posts', (err, rows) => {
     if (err) {
-      return res.status(500).json({ error: 'Erro ao verificar o usuário.' });
+      return res.status(500).json({ error: 'Erro no servidor.' });
     }
-    if (row) {
-      return res.status(400).json({ error: 'Email já registrado.' });
-    }
-
-    // Criptografar a senha
-    const hashedPassword = bcrypt.hashSync(password, 10);
-
-    const query = 'INSERT INTO users (username, email, password) VALUES (?, ?, ?)';
-    db.run(query, [username, email, hashedPassword], function (err) {
-      if (err) {
-        return res.status(500).json({ error: 'Erro ao criar o usuário.' });
-      }
-      res.status(201).json({ message: 'Usuário registrado com sucesso!' });
-    });
+    res.json(rows);
   });
 });
 
-// Rota POST para login
-app.post('/api/login', (req, res) => {
-  const { email, password } = req.body;
-
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email e senha são obrigatórios.' });
-  }
-
-  db.get('SELECT * FROM users WHERE email = ?', [email], (err, row) => {
-    if (err) {
-      return res.status(500).json({ error: 'Erro ao buscar o usuário.' });
-    }
-    if (!row) {
-      return res.status(400).json({ error: 'Usuário não encontrado.' });
-    }
-
-    // Verificar a senha
-    if (!bcrypt.compareSync(password, row.password)) {
-      return res.status(400).json({ error: 'Senha incorreta.' });
-    }
-
-    // Gerar um token JWT
-    const token = jwt.sign({ id: row.id, email: row.email }, 'seu_segredo', { expiresIn: '1h' });
-
-    res.json({ message: 'Login bem-sucedido!', token });
-  });
+// Inicializa o servidor
+app.listen(3000, () => {
+  console.log('Servidor rodando na porta 3000.');
 });
 
-// Inicia o servidor
-app.listen(PORT, () => {
-  console.log(`API rodando em http://localhost:${PORT}`);
-});
